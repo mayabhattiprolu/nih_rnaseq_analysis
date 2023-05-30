@@ -24,10 +24,15 @@ anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
 anno_tximport <-anno %>%
   dplyr::select(target_id = Name, Gene)
 
+txi <- tximport(files, type = "salmon", tx2gene = anno_tximport)
+txi.dseq2 <- data.frame(txi$counts)
+
 txi.dseq2
 samples <- str_extract(files, "MF_\\d+M")
 colnames(txi.dseq2) <- samples
 colnames(txi.dseq2)
+
+mouse <- read.csv('/Users/bhattiprolum2/Desktop/mitra_mouse.csv')
 
 colnames(mouse)[1] <- "Sample"
 
@@ -41,10 +46,7 @@ dds <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Tissue)
 DESeq2Table <- DESeq(dds, parallel = T)
 vst <- varianceStabilizingTransformation(DESeq2Table)
 colnames(vst) <- colData(dds)$value
-mouse_metadata2 %>% 
-  filter(Tissue == "RPE/Choroid") %>%
-  filter(!Sample =="MF-10M") %>%
-  filter(!Sample == "MF-6M")
+
 ```
 
 ## diff test rpe
@@ -102,6 +104,8 @@ volcano_rpetreatment_filter4 <-  volcano_rpetreatment %>%
   filter(padj >0.01) %>%
   head(2)
 
+library(ggrepel)
+
 volcano_rpetreatment %>%
   ggplot(aes(x = log2FoldChange, y = -log10(pvalue), label = Gene)) +
   geom_point() +
@@ -116,6 +120,7 @@ volcano_rpetreatment %>%
 ```
 ## genes
 ```{r}
+library(ggthemes)
 rpe_treatment_counts <- as.data.frame(assay(dds_rpe_treatment))
 #Igkv1-117, Cd4, Sult1c1, Ccl2, Tnnc1, Tnni1, Myl2, Aspn, Myh7, Myh3)
 
@@ -130,17 +135,19 @@ rpe_treatment_counts %>%
   facet_wrap(~Gene, scales = "free") +
   labs(y = 'log counts') +
   theme_hc()
+
 ```
 ## pca
 ```{r}
 
 vst_rpetreatment <- vst[,c('MF_12M', 'MF_2M', 'MF_4M', 'MF_8M')]
 scaled_counts_rpetreatment <- assay(vst_rpetreatment)
- 
+ntop = 1000
+
 Pvars5 <- rowVars(scaled_counts_rpetreatment)
 select5 <- order(Pvars5, decreasing = TRUE)[seq_len(min(ntop, 
                                                         length(Pvars5)))]
-PCA_rpetreatment <- prcomp(t(scaled_counts_rpetreatment[select1, ]), scale = F)
+PCA_rpetreatment <- prcomp(t(scaled_counts_rpetreatment[select5, ]), scale = F)
 percentVar5 <- round(100*PCA_rpetreatment$sdev^2/sum(PCA_rpetreatment$sdev^2),1)
 
 
@@ -153,13 +160,13 @@ dataGG5 = data.frame(PC_rpetreatment1 = PCA_rpetreatment$x[,1], PC_rpetreatment2
 
 ggplot(dataGG5, aes(PC_rpetreatment1, PC_rpetreatment2, color=treatment)) +
   geom_point(size=3) +
-  xlab(paste0("PC1: ",percentVar3[1],"% variance")) +
-  ylab(paste0("PC2: ",percentVar3[2],"% variance")) + labs(title = "RPE Treatment PCA 1/2")
+  xlab(paste0("PC1: ",percentVar5[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar5[2],"% variance")) + labs(title = "RPE Treatment PCA 1/2")
 
 ggplot(dataGG5, aes(PC_rpetreatment3, PC_rpetreatment4, color=treatment)) +
   geom_point(size=3) +
-  xlab(paste0("PC3: ",percentVar3[3],"% variance")) +
-  ylab(paste0("PC4: ",percentVar3[4],"% variance")) + labs(title = "RPE Treatment PCA 3/4")
+  xlab(paste0("PC3: ",percentVar5[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar5[4],"% variance")) + labs(title = "RPE Treatment PCA 3/4")
 ```
 
 
