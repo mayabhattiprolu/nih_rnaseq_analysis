@@ -1,0 +1,502 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# Load libraries and identify quant files
+
+```{r}
+#install.packages(c('BiocManager','tidyverse'))
+#library(BiocManager)
+#install.packages(c('tximport','DESeq2'))
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+
+list.files(path = "/Users/bhattiprolum2/Desktop/MitraMouse/")
+afile = tximport('/Users/bhattiprolum2/Desktop/MitraMouse/MF_10M/quant.sf', type = "salmon", txOut = TRUE)
+
+#install.packages('data.table')
+files <- list.files(path ='/Users/bhattiprolum2/Desktop/MitraMouse/', recursive = TRUE, pattern = 'quant.sf', full.names = TRUE)
+```
+
+## Load in annotation information
+
+```{r, message=FALSE, message=FALSE, warning=FALSE}
+anno <- read_tsv(files[1])
+anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
+anno_tximport <-anno %>%
+  dplyr::select(target_id = Name, Gene)
+```
+
+## Load in counts and metadata
+asdfasdf
+
+```{r, message=FALSE, message=FALSE, warning = FALSE}
+txi <- tximport(files, type = "salmon", tx2gene = anno_tximport)
+txi.dseq2 <- data.frame(txi$counts)
+
+
+mouse <- read.csv('/Users/bhattiprolum2/Desktop/mitra_mouse.csv')
+```
+
+```{r}
+txi.dseq2
+samples <- str_extract(files, "MF_\\d+M")
+
+colnames(txi.dseq2) <- samples
+
+colnames(txi.dseq2)
+
+
+```
+
+# Mouse metadata editing
+```{r}
+mouse
+
+#head(as.integer(sort(c(7,2,4,4,2,6.4,7.1))), 1)
+
+# c(7,2,4,4,2,6.4,7.1) %>% 
+#   sort() %>% 
+#   as.integer() %>% 
+#   head(., 1)
+
+# hand edit first column name because periods are annoying 
+colnames(mouse)[1] <- "Sample"
+
+mouse_metadata <- colnames(txi.dseq2) %>% 
+  enframe() %>% # turns column name vector into data frame
+  left_join(., mouse %>% mutate(value = gsub("-","_",  Sample), by = c("value"))) %>%  # left join the sample info together and fixes naming inconsistency in the mouse metadata
+  separate(Sample.description, c("Genotype","Treatment"), sep = '- ') %>% # separate the description column into genotype and treatment
+  mutate(Treatment = tolower(Treatment), 
+         Treatment=trimws(Treatment)) # ensures the case is consistent betwen things
+
+
+mouse_metadata 
+```
+# Mouse metadata 
+```{r}
+# http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
+# https://github.com/davemcg/OGVFB_RNAseq/blob/master/analysis_template.Rmd
+library(DESeq2)
+dds <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Tissue)
+
+DESeq2Table <- DESeq(dds, parallel = T)
+# rld <- rlogTransformation(DESeq2Table, blind=TRUE)
+vst <- varianceStabilizingTransformation(DESeq2Table)
+colnames(vst) <- colData(dds)$value
+
+```
+## pca 1/2 with tissue 
+```{r}
+
+library(matrixStats)
+ntop = 1000
+Pvars <- rowVars(assay(vst))
+
+select <- order(Pvars, decreasing = TRUE)[seq_len(min(ntop, 
+                                                      length(Pvars)))]
+PCA <- prcomp(t(assay(vst)[select, ]), scale = F)
+
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+
+dataGG = data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2], 
+                    PC3 = PCA$x[,3], PC4 = PCA$x[,4], 
+                    tissue = colData(vst)$Tissue,
+                    treatment=colData(vst)$Treatment,
+                    genotype = colData(vst)$Genotype)
+
+ggplot(dataGG, aes(PC1, PC2, color=tissue)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance"))
+
+```
+
+```{r}
+dataGG %>% 
+  filter(PC1 < 0, tissue == 'RPE/Choroid')
+
+dataGG %>% 
+  filter(PC1 > 0, tissue == 'RPE/Choroid')
+
+```
+## pca rotation gene sorting by tissue
+```{r}
+PCA$rotation[1:10,1:5]
+
+PCA$rotation[,1] %>% sort() %>% head(10)
+
+PCA$rotation[,1] %>% sort() %>% tail(10)
+
+```
+Gm49403: 
+*Gngt1*: eye photoreceptor cell development, phototransduction, protein localization, GTPase activity in mice. Retina, retina outer nuclear layer, brain, photoreceptor inner and outer segments in mice. Encodes G protein round in rod outer segments. 
+Nefl: protein macromolecule adaptor activity, filament bundle assembly, synapse maturation in mice, intracellular transport to axons/dendrites and maintain neuronal caliber in humans. Eye, CNS, PNS ganglion in mice, brain in humans. 
+A930003A15Rik: only in mice, cerebellum, retina inner nuclear layer, retina outer nuclear layer
+Neurod4: Amacrine cell fate determination in retina in humans and mice, onset of cortical gene transcription in mice, fegulation of cell differentiation and transcription in humans. Acts within camera-type eye development in humans. Neural retina in mice, chromatin/nucleus in humans.
+Slc17a6: hyaloid vascular plexus regression in mice + transmembrane transporter activity in humans. Cranial ganglion, nervous system, sensory organ in mice. Synaptic vesicle, brain in humans. 
+*Pde6h*: 3',5' cyclic GMP phosphodiesterase activity, cGMP binding activity, regulation of epidermal growth factor receptor signaling pathway in mice. Transmission and amplification of visual signal in humans. Retina outer nuclear layer in mice, retina in humans. 
+Calb2: Calcium ion binding activity, regulation of long term synaptic potentiation and presynaptic cyosolic calcium ion concentrarion in mice. Message targeting and intracellular calcium buffering in humans Gap junction, nervous, reproductive, respiratory, alimentary systems, sensory organ in mice. 
+Scrt1: DNA-binding transcription repressor activity, and RNA polymerase boinding activity in mice. Protein encoded promotes neural differentiation in humans. Retina, nervous system, lung epithelium in mice. Brain in humans
+*Opn1mw*: Cellular response to light stimulus and phototransduction and G protein coupled receptor signaling pathway in mice. Encodes for green cone photopigment (light absorbing visual pigment opsin) in humans. In photoreceptor outer segment and expressed in eye, photoreceptor layer outer segment, retina, retina outer nuclear layer, photoreceptor layer in mice. 
+
+*Tyrp1*: production of melanin. melanocytes, retina
+Itgbl1: integrin binding activity, cell adhesion. axial skeleton, brain, heart ventricle, meninges, whiskers
+Krt15: scaffold binding protein activity in mice, filament proteins in humans. bladder in mice, skin + esophagous in humans. 
+Krt5: scaffold protein bindin activity un mice. skin
+Myh1: ATP binding in mice, ATP hydrolysis in humans. gonad, gut, mammry gland in mice, prostate/esophagus in humans
+Tnnt.3: ATPase activity regulation and protein binding activity in mice, fast skeleton protein in humans, Eyelid epithelium in mice, esophagus in humans. 
+*Dcn*: regulate collagen fibris + role in tumor supression.  in humans, mutation associated w/ congenital stromal corneal dystrophy. Ovary in humans, bladder in mice
+Lum: regulation of transcription and beta1 production and collagen binding activity in mice + collagen fibrils binding in humans. Digestive system, ear, genitourinary system, heart and pericardium, nervous system in mice. major keratan sulfate proteoglycan of cornea in humans
+Myoc: RTK binding, neurogenesis, skeletal muscle hypertrophy in mice, protein myocilin role in cytoskeletal function. Brain, eye in mice, ocular tissues in humans. Mutations cause of juvenile onset open angle glaucoma
+Myh4: dsRNA binding activity in mice + muscle contraction in huamns. Myofibril, brown fat, diaphragm, heart, skeletal musculature in mice, + myofirbil in humans. 
+
+## pca 1/2 with treatment
+```{r}
+
+ggplot(dataGG, aes(PC1, PC2, color=treatment)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance"))
+
+```
+## pca1/2 with genotype
+```{r}
+
+ggplot(dataGG, aes(PC1, PC2, color=genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance"))
+
+```
+## pca 3/4 
+```{r}
+
+ggplot(dataGG, aes(PC3, PC4, color=tissue)) +
+  geom_point(size=3) +
+  xlab(paste0("PC3: ",percentVar[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar[4],"% variance"))
+
+ggplot(dataGG, aes(PC3, PC4, color=treatment)) +
+  geom_point(size=3) +
+  xlab(paste0("PC3: ",percentVar[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar[4],"% variance"))
+
+ggplot(dataGG, aes(PC3, PC4, color=genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC3: ",percentVar[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar[4],"% variance"))
+
+```
+
+
+
+
+## ggplot gngt1
+```{r, fig.width=5, fig.height=4}
+#install.packages("ggrepel")
+library(ggrepel)
+
+txi.dseq2 %>% 
+  as_tibble(rownames = 'Gene') %>% 
+  filter(Gene == 'Gngt1') %>% 
+  pivot_longer(-Gene) %>% 
+  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>% 
+  ggplot(aes(x=Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name))  +
+  geom_point(size = 4) +
+  geom_text_repel() +
+  labs(title = 'Gngt1', y = "log counts" )
+```
+## ggplot tyrp1
+```{r, fig.width=5, fig.height=3}
+
+txi.dseq2 %>% 
+  as_tibble(rownames = 'Gene') %>% 
+  filter(Gene == 'Tyrp1') %>% 
+  pivot_longer(-Gene) %>% 
+  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
+  geom_point(size = 4) +
+  geom_text(nudge_x = 0.3) +
+  labs(title = 'Tyrp1', y = "log counts") 
+
+txi.dseq2 %>% 
+  as_tibble(rownames = 'Gene') %>% 
+  filter(Gene == 'Tyrp1') %>% 
+  pivot_longer(-Gene) %>% 
+  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
+  geom_point(size = 4) +
+  geom_text_repel() +
+  labs(title = 'Tyrp1', y = "log counts") 
+
+```
+## ggplot pde6h
+```{r, fig.width=5, fig.height=4}
+txi.dseq2 %>%
+  as.tibble(rownames = 'Gene') %>%
+  filter(Gene == 'Pde6h') %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
+  geom_point(size = 4) +
+  geom_text_repel()+
+  labs(title = 'Pde6h', y = 'log counts')
+
+```
+## ggplot opn1mw
+```{r, fig.width=5, fig.height=4}
+txi.dseq2 %>%
+  as.tibble(rownames = 'Gene') %>%
+  filter(Gene == 'Opn1mw') %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
+  geom_point(size = 4) +
+  geom_text_repel()+
+  labs(title = 'Opn1mw', y = 'log counts')
+
+```
+## ggplot dcn
+```{r, fig.width=5, fig.height=4}
+
+txi.dseq2 %>%
+  as.tibble(rownames = 'Gene') %>%
+  filter(Gene == 'Dcn') %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata, by = c('name' = 'value')) %>%
+  select(name, value, Genotype, Treatment, Tissue) %>%
+  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
+  geom_point(size = 4) + 
+  geom_text_repel() + 
+  labs(title = 'Dcn', y = 'log counts')
+
+```
+
+## mislabeling
+```{r}
+mouse_metadata2 <- mouse_metadata %>%
+  select(Sample, Treatment, Genotype, Tissue) %>% 
+  mutate(MisLabel = case_when(Sample == 'MF-10M' ~ "Retina?",
+                              Sample == 'MF-6M' ~ "Retina?"))
+
+mouse_metadata2
+```
+
+## PCA retina
+```{r}
+ntop = 1000
+
+vst_retina <- vst[,c(2,4,6,8,10,12)]
+scaled_counts_retina <- assay(vst_retina)
+
+Pvars1 <- rowVars(scaled_counts_retina)
+select1 <- order(Pvars1, decreasing = TRUE)[seq_len(min(ntop, 
+                                                        length(Pvars1)))]
+PCA_retina <- prcomp(t(scaled_counts_retina[select1, ]), scale = F)
+percentVar1 <- round(100*PCA_retina$sdev^2/sum(PCA_retina$sdev^2),1)
+
+
+dataGG1 = data.frame(PC_retina1 = PCA_retina$x[,1], PC_retina2 = PCA_retina$x[,2], 
+                     PC_retina3 = PCA_retina$x[,3], PC_retina4 = PCA_retina$x[,4], 
+                     tissue = colData(vst_retina)$Tissue,
+                     treatment=colData(vst_retina)$Treatment,
+                     genotype = colData(vst_retina)$Genotype)
+
+ggplot(dataGG1, aes(PC_retina1, PC_retina2, color=treatment, shape = genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar1[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar1[2],"% variance")) + labs(title = "Retina PCA")
+```
+```{r}
+PCA_retina$rotation[1:10,1:5]
+
+PCA_retina$rotation[,'PC1'] %>%
+  sort() %>%
+  head(10)
+
+PCA_retina$rotation[,'PC1'] %>% 
+  sort() %>%
+  tail(10)
+```
+```{r}
+PCA_retina$rotation[,'PC2'] %>%
+  sort() %>%
+  head(10)
+
+PCA_retina$rotation[,'PC2'] %>%
+  sort() %>%
+  tail(10)
+
+```
+## PCA rpe
+```{r}
+ntop = 1000
+
+vst_rpe <- vst[,c('MF_12M','MF_2M','MF_4M','MF_8M')]
+scaled_counts_rpe <- assay(vst_rpe)
+
+Pvars2 <- rowVars(scaled_counts_rpe)
+select2 <- order(Pvars2, decreasing = TRUE)[seq_len(min(ntop, 
+                                                        length(Pvars2)))]
+PCA_rpe <- prcomp(t(scaled_counts_rpe[select1, ]), scale = F)
+percentVar2 <- round(100*PCA_rpe$sdev^2/sum(PCA_rpe$sdev^2),1)
+
+
+dataGG2 = data.frame(PC_rpe1 = PCA_rpe$x[,1], PC_rpe2 = PCA_rpe$x[,2], 
+                     PC_rpe3 = PCA_rpe$x[,3], PC_rpe4 = PCA_rpe$x[,4], 
+                     tissue = colData(vst_rpe)$Tissue,
+                     treatment=colData(vst_rpe)$Treatment,
+                     genotype = colData(vst_rpe)$Genotype)
+
+ggplot(dataGG2, aes(PC_rpe1, PC_rpe2, color=treatment, shape = genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar2[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar2[2],"% variance")) + labs(title = "RPE PCA")
+
+```
+```{r}
+PCA_rpe$rotation[1:10,1:4]
+```
+```{r}
+PCA_rpe$rotation[,'PC1'] %>%
+  sort() %>%
+  head(10)
+
+PCA_rpe$rotation[,'PC1'] %>%
+  sort() %>%
+  tail(10)
+```
+
+```{r}
+PCA_rpe$rotation[,'PC2'] %>%
+  sort() %>%
+  head(10)
+
+PCA_rpe$rotation[,'PC2'] %>%
+  sort() %>%
+  tail(10)
+```
+
+# Diff test of Retina
+```{r}
+dds_against_genotype <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Genotype)
+colnames(dds_against_genotype) <- colData(dds)$value
+dds_retina_nodrug <- dds_against_genotype[,c('MF_11M', 'MF_1M', 'MF_3M', 'MF_9M')]
+
+# may need to add this line:
+# dds$condition <- droplevels(dds$condition)
+dds_retina_nodrug$Genotype <- droplevels(dds_retina_nodrug$Genotype)
+
+# start here
+# dds <- DESeq(dds)
+dds_retina_nodrug <- DESeq(dds_retina_nodrug)
+res <- results(dds_retina_nodrug)
+res
+
+resLFC <- lfcShrink(dds_retina_nodrug, coef = "Genotype_WT_vs_ABCA4KO", type = "normal")
+
+resLFC
+res_tibble <- resLFC %>% as_tibble(rownames = "Gene") 
+
+#sort by:
+res_tibble %>%
+  arrange(desc(log2FoldChange))
+
+res_tibble %>%
+  arrange(pvalue)
+
+res_tibble %>%
+  arrange(padj)
+
+#Genes: Abca4, Zgrf1, Capza1, Fdxr, Leng8, Arhgap, Alpk1, C4b, Hk2, Ide
+
+# pvalues
+sum(res_tibble$padj <0.01, na.rm=TRUE)
+res05 <- results(dds_retina_nodrug, alpha=0.05)
+summary(res05)
+sum(res05$padj < 0.05, na.rm=TRUE)
+```
+## ma-plot
+```{r}
+# stop here
+# plotMA(resLFC, ylim=c(-2,2))
+plotMA(res, ylim=c(-2,2))
+plotMA(resLFC, ylim=c(-2,2))
+
+
+# hint the "res" output needs to be turned into a tibble like so
+# res_tibble <- res %>% as_tibble(rownames = "Gene") and then you can arrange by padj or log2FoldChange
+
+```
+
+## volcano plot
+```{r}
+volcano_data <- res %>%
+  as_tibble(rownames = "Gene") %>%
+  filter(!is.na(log2FoldChange)) 
+
+volcano_data_filter_red <-  volcano_data %>% 
+  filter(log2FoldChange > 1 |
+           log2FoldChange < -1) %>% 
+  filter(padj < 0.01,
+         log1p(baseMean) > 5)
+
+volcano_data_filter2 <- volcano_data %>%
+  arrange(padj) %>%
+  head(2)
+#geom_label_repel(data = volcano_data_filter2)
+
+volcano_data_filter3 <- volcano_data %>%
+  arrange(padj) %>%
+  filter(log2FoldChange >1) %>%
+  filter(padj < 0.01, log1p(baseMean) > 5) %>%
+  head(5)
+
+volcano_data_filter4 <- volcano_data %>%
+  arrange(padj) %>%
+  filter(log2FoldChange < -1) %>%
+  filter(padj < 0.01, log1p(baseMean) >5) %>%
+  head(5) 
+
+# manually select filter for baseMean by hand evaluating 
+# distribution of log2(basemean)
+# volcano_data %>% 
+#     filter(log2FoldChange > 1 |
+#                log2FoldChange < -1) %>% 
+#     filter(padj < 0.01) %>% pull(baseMean) %>% summary()
+# volcano_data %>% 
+#     filter(log2FoldChange > 1 |
+#                log2FoldChange < -1) %>% 
+#     filter(padj < 0.01) %>% pull(baseMean) %>% log1p() %>% density() %>% plot()
+
+volcano_data %>% 
+  ggplot(aes(x=log2FoldChange, y=-log10(pvalue), label = Gene)) + 
+  geom_point() +
+  geom_point(data = volcano_data_filter_red,
+             color = 'red') + 
+  geom_label_repel(data = volcano_data_filter3)+
+   geom_label_repel(data = volcano_data_filter4)
+```
+
+## genes
+```{r}
+retina_counts <- as.data.frame(assay(dds_retina_nodrug))
+
+retina_counts %>%
+  as_tibble(rownames = 'Gene') %>%
+  filter(Gene %in% c('Abca4', 'Arhgap29', 'Zgrf1', 'Capza1', 'Ide', 'Fdxr', 'Leng8', 'Alpk1', 'C4b', 'Hk2')) %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata %>% select(name, value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Genotype, y = log1p(value), color = name)) +
+  geom_boxplot(color = 'black') +
+  geom_point(size = 4) +
+  facet_wrap(~Gene, scales = 'free') + 
+  labs( y = 'log counts')
+```
+\
+
+
