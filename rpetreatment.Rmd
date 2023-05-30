@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+
+list.files(path = "/Users/bhattiprolum2/Desktop/MitraMouse/")
+afile = tximport('/Users/bhattiprolum2/Desktop/MitraMouse/MF_10M/quant.sf', type = "salmon", txOut = TRUE)
+
+#install.packages('data.table')
+files <- list.files(path ='/Users/bhattiprolum2/Desktop/MitraMouse/', recursive = TRUE, pattern = 'quant.sf', full.names = TRUE)
+
+anno <- read_tsv(files[1])
+anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
+anno_tximport <-anno %>%
+  dplyr::select(target_id = Name, Gene)
+
+txi.dseq2
+samples <- str_extract(files, "MF_\\d+M")
+colnames(txi.dseq2) <- samples
+colnames(txi.dseq2)
+
+colnames(mouse)[1] <- "Sample"
+
+mouse_metadata <- colnames(txi.dseq2) %>% 
+  enframe() %>% 
+  left_join(., mouse %>% mutate(value = gsub("-","_",  Sample), by = c("value"))) %>%  
+  separate(Sample.description, c("Genotype","Treatment"), sep = '- ') %>% 
+  mutate(Treatment = tolower(Treatment), 
+                Treatment=trimws(Treatment))
+dds <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Tissue)
+DESeq2Table <- DESeq(dds, parallel = T)
+vst <- varianceStabilizingTransformation(DESeq2Table)
+colnames(vst) <- colData(dds)$value
+mouse_metadata2 %>% 
+  filter(Tissue == "RPE/Choroid") %>%
+  filter(!Sample =="MF-10M") %>%
+  filter(!Sample == "MF-6M")
+```
+
+## diff test rpe
+```{r}
+dds_against_treatment3 <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Treatment)
+colnames(dds_against_treatment3) <- colData(dds)$value
+dds_rpe_treatment <- dds_against_treatment3[,c('MF_12M', 'MF_2M', 'MF_4M', 'MF_8M')]
+
+dds_rpe_treatment$Treatment <- droplevels(dds_rpe_treatment$Treatment)
+
+dds_rpe_treatment <- DESeq(dds_rpe_treatment)
+res_rpetreatment <- results(dds_rpe_treatment)
+
+res_rpetreatment_lfc <- lfcShrink(dds_rpe_treatment, coef = 'Treatment_untreated_vs_400.mg', type = "normal")
+
+res_rpe_tibble <- res_rpetreatment_lfc %>%
+  as_tibble(rownames = 'Gene') 
+
+res_rpe_tibble %>%
+  arrange(log2FoldChange)
+
+res_rpe_tibble %>%
+  arrange(padj)
+
+```
+## ma plot
+```{r}
+plotMA(res_rpetreatment, ylim = c(-2,2))
+plotMA(res_rpetreatment_lfc, ylim = c(-2,2))
+```
+## volcano
+```{r}
+volcano_rpetreatment <- res_rpetreatment %>%
+  as_tibble(rownames = 'Gene') %>%
+  filter(!is.na(log2FoldChange))
+  
+volcano_rpetreatment_filter1 <- volcano_rpetreatment %>%
+  arrange(padj) %>%
+  filter(padj < 0.01) %>%
+  filter(log2FoldChange >1 | log2FoldChange < -1)
+
+volcano_rpetreatment_filter2 <- volcano_rpetreatment %>%
+  arrange(padj) %>%
+  filter(padj <0.01) %>%
+  filter(log2FoldChange >1) %>%
+  head(5)
+
+volcano_rpetreatment_filter3 <- volcano_rpetreatment %>%
+  arrange(padj) %>%
+  filter(padj <0.01) %>%
+  filter(log2FoldChange < -1)
+
+volcano_rpetreatment_filter4 <-  volcano_rpetreatment %>%
+  arrange(padj) %>%
+  filter(padj >0.01) %>%
+  head(2)
+
+volcano_rpetreatment %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(pvalue), label = Gene)) +
+  geom_point() +
+  geom_point(data = volcano_rpetreatment_filter1, color = 'green') +
+  geom_label_repel(data = volcano_rpetreatment_filter4, nudge_y = 0.1 ) +
+  geom_label_repel(data = volcano_rpetreatment_filter2) +
+  geom_label_repel(data = volcano_rpetreatment_filter3)
+  
+  
+  
+
+```
+## genes
+```{r}
+rpe_treatment_counts <- as.data.frame(assay(dds_rpe_treatment))
+#Igkv1-117, Cd4, Sult1c1, Ccl2, Tnnc1, Tnni1, Myl2, Aspn, Myh7, Myh3)
+
+rpe_treatment_counts %>%
+  as_tibble(rownames = 'Gene') %>%
+  filter(Gene %in% c('Igkv1-117', 'Cd4', 'Sult1c1', 'Ccl2', 'Tnnc1', 'Tnni1', 'Myl2', 'Aspn', 'Myh7', 'Myh3')) %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata %>% select(name, value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Treatment, y = log1p(value), color = name, shape = Genotype)) +
+  geom_boxplot(color = 'black') +
+  geom_point() +
+  facet_wrap(~Gene, scales = "free") +
+  labs(y = 'log counts') +
+  theme_hc()
+```
+## pca
+```{r}
+
+vst_rpetreatment <- vst[,c('MF_12M', 'MF_2M', 'MF_4M', 'MF_8M')]
+scaled_counts_rpetreatment <- assay(vst_rpetreatment)
+ 
+Pvars5 <- rowVars(scaled_counts_rpetreatment)
+select5 <- order(Pvars5, decreasing = TRUE)[seq_len(min(ntop, 
+                                                        length(Pvars5)))]
+PCA_rpetreatment <- prcomp(t(scaled_counts_rpetreatment[select1, ]), scale = F)
+percentVar5 <- round(100*PCA_rpetreatment$sdev^2/sum(PCA_rpetreatment$sdev^2),1)
+
+
+dataGG5 = data.frame(PC_rpetreatment1 = PCA_rpetreatment$x[,1], PC_rpetreatment2 = PCA_rpetreatment$x[,2], 
+                     PC_rpetreatment3 = PCA_rpetreatment$x[,3], PC_rpetreatment4 = PCA_rpetreatment$x[,4], 
+                     tissue = colData(vst_rpetreatment)$Tissue,
+                     treatment=colData(vst_rpetreatment)$Treatment,
+                     genotype = colData(vst_rpetreatment)$Genotype)
+
+
+ggplot(dataGG5, aes(PC_rpetreatment1, PC_rpetreatment2, color=treatment)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar3[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar3[2],"% variance")) + labs(title = "RPE Treatment PCA 1/2")
+
+ggplot(dataGG5, aes(PC_rpetreatment3, PC_rpetreatment4, color=treatment)) +
+  geom_point(size=3) +
+  xlab(paste0("PC3: ",percentVar3[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar3[4],"% variance")) + labs(title = "RPE Treatment PCA 3/4")
+```
+
+
+
+
