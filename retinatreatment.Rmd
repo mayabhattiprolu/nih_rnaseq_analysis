@@ -1,0 +1,161 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+
+list.files(path = "/Users/bhattiprolum2/Desktop/MitraMouse/")
+afile = tximport('/Users/bhattiprolum2/Desktop/MitraMouse/MF_10M/quant.sf', type = "salmon", txOut = TRUE)
+
+#install.packages('data.table')
+files <- list.files(path ='/Users/bhattiprolum2/Desktop/MitraMouse/', recursive = TRUE, pattern = 'quant.sf', full.names = TRUE)
+
+anno <- read_tsv(files[1])
+anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
+anno_tximport <-anno %>%
+  dplyr::select(target_id = Name, Gene)
+
+txi.dseq2
+samples <- str_extract(files, "MF_\\d+M")
+colnames(txi.dseq2) <- samples
+colnames(txi.dseq2)
+
+colnames(mouse)[1] <- "Sample"
+
+mouse_metadata <- colnames(txi.dseq2) %>% 
+  enframe() %>% 
+  left_join(., mouse %>% mutate(value = gsub("-","_",  Sample), by = c("value"))) %>%  
+  separate(Sample.description, c("Genotype","Treatment"), sep = '- ') %>% 
+  mutate(Treatment = tolower(Treatment), 
+                Treatment=trimws(Treatment))
+dds <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Tissue)
+DESeq2Table <- DESeq(dds, parallel = T)
+vst <- varianceStabilizingTransformation(DESeq2Table)
+colnames(vst) <- colData(dds)$value
+mouse_metadata2 %>% 
+  filter(Tissue == "Retina")
+```
+## diff test
+```{r}
+
+dds_against_treatment2 <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Treatment)
+colnames(dds_against_treatment2) <- colData(dds)$value
+dds_retina_treatment <- dds_against_treatment2[,c('MF_11M', 'MF_1M', 'MF_3M', 'MF_5M', 'MF_7M', 'MF_9M')]
+
+dds_retina_treatment$Treatment <- droplevels(dds_retina_treatment$Treatment)
+
+dds_retina_treatment <-DESeq(dds_retina_treatment)
+
+res_treatment <- results(dds_retina_treatment)
+
+res_treatment_lfc <- lfcShrink(dds_retina_treatment, coef = "Treatment_untreated_vs_400.mg", type = "normal")
+
+res_treatment_tibble <- res_treatment_lfc %>% 
+  as_tibble(rownames = "Gene") 
+
+res_treatment_tibble %>%
+  arrange(desc(log2FoldChange))
+
+res_treatment_tibble %>%
+  arrange(padj)
+
+
+```
+
+
+## ma plot
+```{r}
+plotMA(res_treatment, ylim = c(-2,2))
+plotMA(res_treatment_lfc, ylim = c(-2,2))
+
+```
+## volcano
+```{r}
+
+volcano_treatment<- res_treatment %>%
+  as_tibble(rownames = "Gene") %>%
+  filter(!is.na(log2FoldChange)) 
+
+
+volcano_treatment_filter1 <- volcano_treatment %>%
+  arrange(padj) %>%
+  filter(padj < 0.05) %>%
+  filter(log2FoldChange >1 | log2FoldChange < -1)
+
+volcano_treatment_filter2 <-volcano_treatment %>%
+  arrange(padj) %>%
+  filter(padj < 0.05) %>%
+  filter(log2FoldChange >1)
+
+volcano_treatment_filter3 <- volcano_treatment %>%
+  arrange(padj) %>%
+  filter(padj < 0.05) %>%
+  filter(log2FoldChange < -1)
+
+
+volcano_treatment %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(pvalue), label = Gene)) +
+  geom_point() +
+  geom_point(data = volcano_treatment_filter1, color = "orange") +
+  geom_label_repel(data = volcano_treatment_filter2) +
+  geom_label_repel(data = volcano_treatment_filter3)
+
+```
+## genes
+```{r}
+retina_treatment_counts <- as.data.frame(assay(dds_retina_treatment))
+
+retina_treatment_counts %>%
+  as.tibble(rownames = "Gene") %>%
+  filter(Gene %in% c('Obscn', 'Nsl1', 'Rspo2', 'Sst', 'Fcgr3', 'Adgrl4', 'Ip6k3', 'Fam205a2')) %>%
+  pivot_longer(-Gene) %>%
+  left_join(mouse_metadata %>% select(name, value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
+  ggplot(aes(x = Treatment, y = log1p(value), color = name, shape = Genotype)) +
+  geom_boxplot(color = "black") +
+  geom_point() +
+  facet_wrap(~Gene, scales = "free")+ 
+  labs( y = 'log counts') +
+  theme_bw()
+
+```
+## pca
+```{r}
+library(matrixStats)
+ntop = 1000
+vst_retinatreatment <- vst[,c('MF_11M', 'MF_1M', 'MF_3M', 'MF_5M', 'MF_7M', 'MF_9M')]
+scaled_counts_retinatreatment <- assay(vst_retinatreatment)
+
+Pvars3 <- rowVars(scaled_counts_retinatreatment)
+select3 <- order(Pvars3, decreasing = TRUE)[seq_len(min(ntop, 
+                                                        length(Pvars3)))]
+PCA_retinatreatment <- prcomp(t(scaled_counts_retinatreatment[select1, ]), scale = F)
+percentVar3 <- round(100*PCA_retinatreatment$sdev^2/sum(PCA_retinatreatment$sdev^2),1)
+
+
+dataGG3 = data.frame(PC_retinatreatment1 = PCA_retinatreatment$x[,1], PC_retinatreatment2 = PCA_retinatreatment$x[,2], 
+                     PC_retinatreatment3 = PCA_retinatreatment$x[,3], PC_retinatreatment4 = PCA_retinatreatment$x[,4], 
+                     tissue = colData(vst_retinatreatment)$Tissue,
+                     treatment=colData(vst_retinatreatment)$Treatment,
+                     genotype = colData(vst_retinatreatment)$Genotype)
+
+ggplot(dataGG3, aes(PC_retinatreatment1, PC_retinatreatment2, color=treatment, shape = genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar3[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar3[2],"% variance")) + labs(title = "Retina Treatment PCA 1/2")
+
+ggplot(dataGG3, aes(PC_retinatreatment3, PC_retinatreatment4, color=treatment, shape = genotype)) +
+  geom_point(size=3) +
+  xlab(paste0("PC3: ",percentVar3[3],"% variance")) +
+  ylab(paste0("PC4: ",percentVar3[4],"% variance")) + labs(title = "Retina Treatment PCA 3/4")
+
+```
+
+
+
+
+
