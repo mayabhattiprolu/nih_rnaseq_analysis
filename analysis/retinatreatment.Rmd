@@ -20,10 +20,14 @@ anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
 anno_tximport <-anno %>%
   dplyr::select(target_id = Name, Gene)
 
-txi.dseq2
+txi <- tximport(files, type = "salmon", tx2gene = anno_tximport)
+txi.dseq2 <- data.frame(txi$counts)
+
 samples <- str_extract(files, "MF_\\d+M")
 colnames(txi.dseq2) <- samples
 colnames(txi.dseq2)
+
+mouse <- read.csv('/Users/bhattiprolum2/Desktop/mitra_mouse.csv')
 
 colnames(mouse)[1] <- "Sample"
 
@@ -37,8 +41,7 @@ dds <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Tissue)
 DESeq2Table <- DESeq(dds, parallel = T)
 vst <- varianceStabilizingTransformation(DESeq2Table)
 colnames(vst) <- colData(dds)$value
-mouse_metadata2 %>% 
-  filter(Tissue == "Retina")
+
 ```
 ## diff test
 ```{r}
@@ -76,6 +79,7 @@ plotMA(res_treatment_lfc, ylim = c(-2,2))
 ```
 ## volcano
 ```{r}
+library(ggrepel)
 
 volcano_treatment<- res_treatment %>%
   as_tibble(rownames = "Gene") %>%
@@ -108,6 +112,7 @@ volcano_treatment %>%
 ```
 ## genes
 ```{r}
+library(ggthemes)
 retina_treatment_counts <- as.data.frame(assay(dds_retina_treatment))
 
 retina_treatment_counts %>%
@@ -133,7 +138,7 @@ scaled_counts_retinatreatment <- assay(vst_retinatreatment)
 Pvars3 <- rowVars(scaled_counts_retinatreatment)
 select3 <- order(Pvars3, decreasing = TRUE)[seq_len(min(ntop, 
                                                         length(Pvars3)))]
-PCA_retinatreatment <- prcomp(t(scaled_counts_retinatreatment[select1, ]), scale = F)
+PCA_retinatreatment <- prcomp(t(scaled_counts_retinatreatment[select3, ]), scale = F)
 percentVar3 <- round(100*PCA_retinatreatment$sdev^2/sum(PCA_retinatreatment$sdev^2),1)
 
 
