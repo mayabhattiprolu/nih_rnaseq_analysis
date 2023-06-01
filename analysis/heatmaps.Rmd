@@ -1,0 +1,424 @@
+---
+title: "Retina and RPE Gene Expression Heatmaps"
+author: "Maya Bhattiprolu, David McGaughey"
+date: "6/1/23"
+output: 
+  html_notebook:
+    toc: TRUE
+    toc_float: TRUE
+---
+
+```{r}
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+library(ComplexHeatmap)
+library(viridis)
+library(pals)
+
+files <- list.files(path ='/Users/bhattiprolum2/Desktop/MitraMouse/', recursive = TRUE, pattern = 'quant.sf', full.names = TRUE)
+
+anno <- read_tsv(files[1])
+anno$Gene <-sapply(anno$Name,function(x)strsplit(x,"\\|")[[1]][6])
+anno_tximport <-anno %>%
+  dplyr::select(target_id = Name, Gene)
+txi <- tximport(files, type = "salmon", tx2gene = anno_tximport)
+txi.dseq2 <- data.frame(txi$counts)
+
+
+mouse <- read.csv('/Users/bhattiprolum2/Desktop/mitra_mouse.csv')
+
+samples <- str_extract(files, "MF_\\d+M")
+colnames(txi.dseq2) <- samples
+
+colnames(mouse)[1] <- "Sample"
+
+mouse_metadata <- colnames(txi.dseq2) %>% 
+  enframe() %>% # turns column name vector into data frame
+  left_join(., mouse %>% mutate(value = gsub("-","_",  Sample), by = c("value"))) %>%  # left join the sample info together and fixes naming inconsistency in the mouse metadata
+  separate(Sample.description, c("Genotype","Treatment"), sep = '- ') %>%
+  mutate(Treatment = tolower(Treatment), 
+         Treatment=trimws(Treatment)) 
+```
+
+```{r, message=FALSE, message=FALSE, warning = FALSE}
+
+genelist <- read_tsv('/Users/bhattiprolum2/Documents/mitra_process_sets_2023.tsv') %>%
+  as.data.frame()
+
+genelist 
+```
+# Retina 
+
+## ceramide
+```{r, fig.height=30, fig.width=6}
+ceramide_genes <- genelist %>%
+  filter(Process == "ceramide") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_TPM1 <- txi$abundance 
+colnames(gene_TPM1) <- mouse_metadata$Sample
+
+# add a pseudocount of 1 as log2(0) is infinity
+relative <- log2(gene_TPM1 + 1)
+row_means <- rowMeans(relative)
+relative <- relative - row_means
+#relative_g <-  relative
+
+
+gene_TPM <- gene_TPM1 %>%
+  as.tibble(rownames = "Gene") %>%
+  mutate(Gene = toupper(Gene)) %>%
+  dplyr::select("Gene", any_of(sample_order)) %>%
+  column_to_rownames(var = "Gene") %>%
+  as.matrix()
+
+
+#only the genes that are in the relative
+
+sample_order <- c("MF-1M", "MF-3M", "MF-5M", "MF-7M", "MF-9M", 'MF-11M')
+
+
+# add a pseudocount of 1 as log2(0) is infinity
+relative <- log2(gene_TPM + 1)
+row_means <- rowMeans(relative)
+relative <- relative - row_means
+#relative_g <-  relative
+
+retina_samples <- sample_order %>% 
+  enframe(name = 'first', value = 'Sample') %>% 
+  left_join(mouse_metadata, by = 'Sample') %>%
+  filter(Tissue == "Retina")
+
+gene_set_ceramide <- gene_set[gene_set %in% row.names(relative)]
+gene_set <- c(ceramide_genes)
+
+ha_column = HeatmapAnnotation(df = data.frame(Treatment = retina_samples$Treatment, Genotype = retina_samples$Genotype, Tissue = retina_samples$Tissue),
+                             col = list(Treatment = c("untreated" = unname(pals::alphabet()[1]), 
+                                                      "400 mg" = unname(pals::alphabet()[2])), 
+                                        Genotype = c("ABCA4KO" = unname(pals::alphabet()[7]), 
+                                                     "WT" = unname(pals::alphabet()[20])), 
+                                                     Tissue = c("Retina" = magma(20)[12])))
+hm_matrix <- relative[gene_set_ceramide,]
+
+Heatmap(hm_matrix, 
+        cluster_columns = FALSE,
+        cluster_rows = TRUE, 
+        name = 'log2(FoldChange)',
+        top_annotation = ha_column)
+```
+
+## mito
+```{r, fig.height=20, fig.width=6}
+
+mito_genes <- genelist %>%
+  filter(Process == "mito") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_mito <- c(mito_genes)
+
+mito_genes_set <- gene_set_mito[gene_set_mito %in% row.names(relative)]
+
+hm_matrix3 <- relative[mito_genes_set,]
+
+Heatmap(hm_matrix3, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+```
+
+## oxidative
+```{r, fig.height=10, fig.width=6}
+
+oxidative_genes <- genelist %>%
+  filter(Process == "oxidative") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_oxidative <- c(oxidative_genes)
+
+oxidative_genes_set <- gene_set_oxidative[gene_set_oxidative %in% row.names(relative)]
+
+hm_matrix4 <- relative[oxidative_genes_set,]
+
+Heatmap(hm_matrix4, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+```
+## cholesterol
+```{r, fig.height=25, fig.width=6}
+
+cholesterol_genes <- genelist %>%
+  filter(Process == "cholesterol") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_cholesterol <- c(cholesterol_genes)
+
+cholesterol_genes_set <- gene_set_cholesterol[gene_set_cholesterol %in% row.names(relative)]
+
+hm_matrix5 <- relative[cholesterol_genes_set,]
+
+Heatmap(hm_matrix5, 
+        cluster_columns = FALSE,
+        cluster_rows = TRUE,
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+```
+
+## ampk
+
+```{r, fig.height = 25, fig.width= 6}
+
+ampk_genes <- genelist %>%
+  filter(Process == "ampk") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_ampk <- c(ampk_genes)
+
+ampk_genes_set <- gene_set_ampk[gene_set_ampk %in% row.names(relative)]
+
+hm_matrix6 <- relative[ampk_genes_set,]
+
+Heatmap(hm_matrix6, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+
+```
+
+## lysosome
+
+```{r, fig.height = 20, fig.width= 6}
+
+lysosome_genes <- genelist %>%
+  filter(Process == "lysosome") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_lysosome <- c(lysosome_genes)
+
+lysosome_genes_set <- gene_set_lysosome[gene_set_lysosome %in% row.names(relative)]
+
+hm_matrix7 <- relative[lysosome_genes_set,]
+
+Heatmap(hm_matrix7, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+
+```
+
+## autophagy
+
+```{r, fig.height=20, fig.width=6}
+
+autophagy_genes <- genelist %>%
+  filter(Process == "autophagy") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_autophagy <- c(autophagy_genes)
+
+autophagy_genes_set <- gene_set_autophagy[gene_set_autophagy %in% row.names(relative)]
+
+hm_matrix8 <- relative [autophagy_genes_set,]
+
+Heatmap(hm_matrix8, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+
+
+
+```
+## visual cycle
+
+```{r, fig.height=10, fig.width=6}
+
+visual_genes <- genelist %>%
+  filter(Process == "visual_cycle") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+gene_set_visual <- c(visual_genes)
+
+visual_genes_set <- gene_set_visual[gene_set_visual %in% row.names(relative)]
+
+hm_matrix9 <- relative [visual_genes_set,]
+
+Heatmap(hm_matrix9, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column)
+
+
+
+```
+# RPE
+
+## ceramide
+```{r, fig.height=30, fig.width=6}
+ceramide_genes <- genelist %>%
+  filter(Process == "ceramide") %>%
+  dplyr::select(Gene) %>%
+  as.list() %>%
+  list_c()
+
+  
+gene_TPM1 <- txi$abundance 
+colnames(gene_TPM1) <- mouse_metadata$Sample
+
+sample_order2 <- c("MF-12M", "MF-8M", "MF-4M", "MF-2M")
+
+gene_TPM2 <- gene_TPM1 %>%
+  as.tibble(rownames = "Gene") %>%
+  mutate(Gene = toupper(Gene)) %>%
+  dplyr::select("Gene", any_of(sample_order2)) %>%
+  column_to_rownames(var = "Gene") %>%
+  as.matrix()
+  
+
+relative2 <- log2(gene_TPM2 + 1)
+row_means2 <- rowMeans(relative2)
+relative2 <- relative2 - row_means2
+
+gene_set <- c(ceramide_genes)
+gene_set_ceramide <- gene_set[gene_set %in% row.names(relative2)]
+
+rpe_samples <- sample_order2 %>% 
+  enframe(name = 'first', value = 'Sample') %>% 
+  left_join(mouse_metadata, by = 'Sample')
+
+ha_column2 = HeatmapAnnotation(df = data.frame(Treatment = rpe_samples$Treatment, Genotype = rpe_samples$Genotype, Tissue = rpe_samples$Tissue),
+                             col = list(Treatment = c("untreated" = unname(pals::alphabet()[1]), 
+                                                      "400 mg" = unname(pals::alphabet()[2])), 
+                                        Genotype = c("ABCA4KO" = unname(pals::alphabet()[7]), 
+                                                     "WT" = unname(pals::alphabet()[20])), 
+                                                     Tissue = c("RPE/Choroid" = magma(20)[19])))
+hm_matrix <- relative2[gene_set_ceramide,]
+
+Heatmap(hm_matrix, 
+        cluster_columns = FALSE,
+        cluster_rows = TRUE, 
+        name = 'log2(FoldChange)',
+        top_annotation = ha_column2)
+
+```
+## mito
+```{r, fig.height=20, fig.width=6}
+
+mito_genes_set <- gene_set_mito[gene_set_mito %in% row.names(relative2)]
+
+hm_matrix3 <- relative2[mito_genes_set,]
+
+Heatmap(hm_matrix3, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+
+## oxidative
+```{r, fig.height=10, fig.width=5}
+
+oxidative_genes_set <- gene_set_oxidative[gene_set_oxidative %in% row.names(relative2)]
+
+hm_matrix4 <- relative2[oxidative_genes_set,]
+
+Heatmap(hm_matrix4, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+## cholesterol
+```{r, fig.height=20, fig.width=5}
+
+cholesterol_genes_set <- gene_set_cholesterol[gene_set_cholesterol %in% row.names(relative2)]
+
+hm_matrix5 <- relative2[cholesterol_genes_set,]
+
+Heatmap(hm_matrix5, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+## ampk
+```{r, fig.height=20, fig.width=5}
+
+ampk_genes_set <- gene_set_ampk[gene_set_ampk %in% row.names(relative2)]
+
+hm_matrix6 <- relative2[ampk_genes_set,]
+
+Heatmap(hm_matrix6, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+
+## lysosome
+```{r, fig.height=15, fig.width=5}
+
+lysosome_genes_set <- gene_set_lysosome[gene_set_lysosome %in% row.names(relative2)]
+
+hm_matrix7 <- relative2[lysosome_genes_set,]
+
+Heatmap(hm_matrix7, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+## autophagy
+```{r, fig.height=20, fig.width=5}
+
+autophagy_genes_set <- gene_set_autophagy[gene_set_autophagy %in% row.names(relative2)]
+
+hm_matrix8 <- relative2[autophagy_genes_set,]
+
+Heatmap(hm_matrix8, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+
+## visual cycle
+```{r, fig.height=10, fig.width=5}
+
+visual_genes_set <- gene_set_visual[gene_set_visual %in% row.names(relative2)]
+
+hm_matrix9 <- relative2[visual_genes_set,]
+
+Heatmap(hm_matrix9, 
+        cluster_columns = FALSE, 
+        cluster_rows = TRUE, 
+        name = "log2FoldChange", 
+        top_annotation = ha_column2)
+```
+
+# session info
+```{r}
+sessionInfo()
+```
