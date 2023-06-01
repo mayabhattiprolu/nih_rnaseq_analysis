@@ -1,6 +1,11 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Mouse Metadata"
+author: "Maya Bhattiprolu, David McGaughey"
+date: "6/1/23"
+output: 
+  html_notebook:
+    toc: TRUE
+    toc_float: TRUE
 ---
 
 
@@ -195,96 +200,32 @@ ggplot(dataGG, aes(PC3, PC4, color=genotype)) +
 
 
 
-## ggplot gngt1
-```{r, fig.width=5, fig.height=4}
+## genes
+```{r}
 #install.packages("ggrepel")
 library(ggrepel)
 
 txi.dseq2 %>% 
   as_tibble(rownames = 'Gene') %>% 
-  filter(Gene == 'Gngt1') %>% 
+  filter(Gene %in% c('Gngt1', 'Tyrp1', 'Pde6h', 'Opn1mw', 'Dcn')) %>% 
   pivot_longer(-Gene) %>% 
-  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>% 
+  left_join(mouse_metadata %>% dplyr::select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>% 
   ggplot(aes(x=Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name))  +
-  geom_point(size = 4) +
-  geom_text_repel() +
-  labs(title = 'Gngt1', y = "log counts" )
-```
-## ggplot tyrp1
-```{r, fig.width=5, fig.height=3}
-
-txi.dseq2 %>% 
-  as_tibble(rownames = 'Gene') %>% 
-  filter(Gene == 'Tyrp1') %>% 
-  pivot_longer(-Gene) %>% 
-  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
-  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
-  geom_point(size = 4) +
-  geom_text(nudge_x = 0.3) +
-  labs(title = 'Tyrp1', y = "log counts") 
-
-txi.dseq2 %>% 
-  as_tibble(rownames = 'Gene') %>% 
-  filter(Gene == 'Tyrp1') %>% 
-  pivot_longer(-Gene) %>% 
-  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
-  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
-  geom_point(size = 4) +
-  geom_text_repel() +
-  labs(title = 'Tyrp1', y = "log counts") 
-
-```
-## ggplot pde6h
-```{r, fig.width=5, fig.height=4}
-txi.dseq2 %>%
-  as.tibble(rownames = 'Gene') %>%
-  filter(Gene == 'Pde6h') %>%
-  pivot_longer(-Gene) %>%
-  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
-  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
-  geom_point(size = 4) +
-  geom_text_repel()+
-  labs(title = 'Pde6h', y = 'log counts')
-
-```
-## ggplot opn1mw
-```{r, fig.width=5, fig.height=4}
-txi.dseq2 %>%
-  as.tibble(rownames = 'Gene') %>%
-  filter(Gene == 'Opn1mw') %>%
-  pivot_longer(-Gene) %>%
-  left_join(mouse_metadata %>% select(value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
-  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
-  geom_point(size = 4) +
-  geom_text_repel()+
-  labs(title = 'Opn1mw', y = 'log counts')
-
-```
-## ggplot dcn
-```{r, fig.width=5, fig.height=4}
-
-txi.dseq2 %>%
-  as.tibble(rownames = 'Gene') %>%
-  filter(Gene == 'Dcn') %>%
-  pivot_longer(-Gene) %>%
-  left_join(mouse_metadata, by = c('name' = 'value')) %>%
-  select(name, value, Genotype, Treatment, Tissue) %>%
-  ggplot(aes(x = Tissue, y = log1p(value), color = Genotype, shape = Treatment, label = name)) +
-  geom_point(size = 4) + 
-  geom_text_repel() + 
-  labs(title = 'Dcn', y = 'log counts')
-
+  geom_point(size = 2) +
+  geom_text_repel(max.overlaps = Inf) +
+  facet_wrap(~Gene, scales = 'free') +
+  labs(y = "log counts" )
 ```
 
 ## mislabeling
 ```{r}
 mouse_metadata2 <- mouse_metadata %>%
-  select(Sample, Treatment, Genotype, Tissue) %>% 
+  dplyr::select(Sample, Treatment, Genotype, Tissue) %>% 
   mutate(MisLabel = case_when(Sample == 'MF-10M' ~ "Retina?",
                               Sample == 'MF-6M' ~ "Retina?"))
-
 mouse_metadata2
 ```
+
 
 ## PCA retina
 ```{r}
@@ -381,120 +322,53 @@ PCA_rpe$rotation[,'PC2'] %>%
   tail(10)
 ```
 
-# Diff test of Retina
+## Gene expression heatmap
 ```{r}
-dds_against_genotype <- DESeqDataSetFromTximport(txi, mouse_metadata, design = ~Genotype)
-colnames(dds_against_genotype) <- colData(dds)$value
-dds_retina_nodrug <- dds_against_genotype[,c('MF_11M', 'MF_1M', 'MF_3M', 'MF_9M')]
 
-# may need to add this line:
-# dds$condition <- droplevels(dds$condition)
-dds_retina_nodrug$Genotype <- droplevels(dds_retina_nodrug$Genotype)
+gene_set<- c('Gngt1', 'Tyrp1', 'Pde6h', 'Opn1mw', 'Dcn')
 
-# start here
-# dds <- DESeq(dds)
-dds_retina_nodrug <- DESeq(dds_retina_nodrug)
-res <- results(dds_retina_nodrug)
-res
+gene_TPM <- txi$abundance
+colnames(gene_TPM) <- mouse_metadata$Sample
+gene_TPM <- gene_TPM %>%
+  as.data.frame() %>%
+  dplyr::select("MF-11M", "MF-1M", "MF-3M", "MF-5M", "MF-7M", "MF-9M") %>%
+  as.matrix()
 
-resLFC <- lfcShrink(dds_retina_nodrug, coef = "Genotype_WT_vs_ABCA4KO", type = "normal")
+# add a pseudocount of 1 as log2(0) is infinity
+relative <- log2(gene_TPM + 1)
+row_means <- rowMeans(relative)
+relative <- relative - row_means
+#relative_g <-  relative
 
-resLFC
-res_tibble <- resLFC %>% as_tibble(rownames = "Gene") 
-
-#sort by:
-res_tibble %>%
-  arrange(desc(log2FoldChange))
-
-res_tibble %>%
-  arrange(pvalue)
-
-res_tibble %>%
-  arrange(padj)
-
-#Genes: Abca4, Zgrf1, Capza1, Fdxr, Leng8, Arhgap, Alpk1, C4b, Hk2, Ide
-
-# pvalues
-sum(res_tibble$padj <0.01, na.rm=TRUE)
-res05 <- results(dds_retina_nodrug, alpha=0.05)
-summary(res05)
-sum(res05$padj < 0.05, na.rm=TRUE)
-```
-## ma-plot
-```{r}
-# stop here
-# plotMA(resLFC, ylim=c(-2,2))
-plotMA(res, ylim=c(-2,2))
-plotMA(resLFC, ylim=c(-2,2))
-
-
-# hint the "res" output needs to be turned into a tibble like so
-# res_tibble <- res %>% as_tibble(rownames = "Gene") and then you can arrange by padj or log2FoldChange
+retina_samples <- mouse_metadata %>%
+  filter(Tissue == "Retina")
 
 ```
 
-## volcano plot
 ```{r}
-volcano_data <- res %>%
-  as_tibble(rownames = "Gene") %>%
-  filter(!is.na(log2FoldChange)) 
+# color palettes: https://emilhvitfeldt.github.io/r-color-palettes/discrete.html
+#BiocManager::install("ComplexHeatmap")
+library(ComplexHeatmap)
+#install.packages("viridis")
+library(viridis)
+library(pals)
 
-volcano_data_filter_red <-  volcano_data %>% 
-  filter(log2FoldChange > 1 |
-           log2FoldChange < -1) %>% 
-  filter(padj < 0.01,
-         log1p(baseMean) > 5)
+ha_column = HeatmapAnnotation(df = data.frame(Treatment = retina_samples$Treatment, Genotype = retina_samples$Genotype, Tissue = retina_samples$Tissue),
+                             col = list(Treatment = c("untreated" = unname(pals::alphabet()[1]), 
+                                                      "400 mg" = unname(pals::alphabet()[2])), 
+                                        Genotype = c("ABCA4KO" = unname(pals::alphabet()[7]), 
+                                                     "WT" = unname(pals::alphabet()[20])), 
+                                                     Tissue = c("Retina" = magma(20)[12])))
 
-volcano_data_filter2 <- volcano_data %>%
-  arrange(padj) %>%
-  head(2)
-#geom_label_repel(data = volcano_data_filter2)
-
-volcano_data_filter3 <- volcano_data %>%
-  arrange(padj) %>%
-  filter(log2FoldChange >1) %>%
-  filter(padj < 0.01, log1p(baseMean) > 5) %>%
-  head(5)
-
-volcano_data_filter4 <- volcano_data %>%
-  arrange(padj) %>%
-  filter(log2FoldChange < -1) %>%
-  filter(padj < 0.01, log1p(baseMean) >5) %>%
-  head(5) 
-
-# manually select filter for baseMean by hand evaluating 
-# distribution of log2(basemean)
-# volcano_data %>% 
-#     filter(log2FoldChange > 1 |
-#                log2FoldChange < -1) %>% 
-#     filter(padj < 0.01) %>% pull(baseMean) %>% summary()
-# volcano_data %>% 
-#     filter(log2FoldChange > 1 |
-#                log2FoldChange < -1) %>% 
-#     filter(padj < 0.01) %>% pull(baseMean) %>% log1p() %>% density() %>% plot()
-
-volcano_data %>% 
-  ggplot(aes(x=log2FoldChange, y=-log10(pvalue), label = Gene)) + 
-  geom_point() +
-  geom_point(data = volcano_data_filter_red,
-             color = 'red') + 
-  geom_label_repel(data = volcano_data_filter3)+
-   geom_label_repel(data = volcano_data_filter4)
+hm_matrix <- relative[gene_set, ]
+Heatmap(hm_matrix, 
+        cluster_columns = FALSE,
+        cluster_rows = TRUE, 
+        name = 'log2(FoldChange)', 
+        top_annotation = ha_column)
 ```
 
-## genes
+# session info
 ```{r}
-retina_counts <- as.data.frame(assay(dds_retina_nodrug))
-
-retina_counts %>%
-  as_tibble(rownames = 'Gene') %>%
-  filter(Gene %in% c('Abca4', 'Arhgap29', 'Zgrf1', 'Capza1', 'Ide', 'Fdxr', 'Leng8', 'Alpk1', 'C4b', 'Hk2')) %>%
-  pivot_longer(-Gene) %>%
-  left_join(mouse_metadata %>% select(name, value, Genotype, Treatment, Tissue), by = c('name' = 'value')) %>%
-  ggplot(aes(x = Genotype, y = log1p(value), color = name)) +
-  geom_boxplot(color = 'black') +
-  geom_point(size = 4) +
-  facet_wrap(~Gene, scales = 'free') + 
-  labs( y = 'log counts')
+sessionInfo()
 ```
-
